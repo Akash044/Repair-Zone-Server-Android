@@ -6,9 +6,6 @@ const ObjectId = require('mongodb').ObjectID;
 const MongoClient = require('mongodb').MongoClient;
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
-const UserVerification = require('./models/UserOTPVerification');
-const User = require('./models/User');
-const userOTPVerification = require('./models/UserOTPVerification');
 const saltRounds = 10;
 
 require('dotenv').config();
@@ -40,7 +37,7 @@ app.get('/', (req, res) => {
 client.connect(err => {
 
    const userCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL1);
-   // const adminCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL2);
+   const serviceCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL2);
    // const rentCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL3);
    // const mealCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL4);
    // const roomCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL5);
@@ -125,6 +122,7 @@ client.connect(err => {
    })
    app.post('/verifyUser', (req, res) => {
       const { email, otp } = req.body
+      console.log(email, otp)
 
       userCollection.find({ email: email })
          .toArray((err, documents) => {
@@ -153,13 +151,13 @@ client.connect(err => {
          })
    })
    app.post('/signup', async (req, res) => {
-      const { name, contact, email, address, password } = req.body;
+      const { name, contact, email, address, password ,admin} = req.body;
       console.log(req.body)
 
       userCollection.find({ email: email, verified: true })
          .toArray(async (err, result) => {
             if (result.length > 0) {
-               res.send({ status: 'FAILED', message: "User with the provided email already exits" });
+               res.send(false);
             }
             else {
                bcrypt.genSalt(saltRounds, async (err, salt) => {
@@ -187,15 +185,24 @@ client.connect(err => {
                         console.log(hashOTP);
 
 
-                        await transporter.sendMail(mailOptions, (err, resp) => {
+                        transporter.sendMail(mailOptions, (err, resp) => {
                            if (err) {
                               console.log(err);
                               mailResponse = false
-                             res.send({err})
+                              res.send(false)
 
                            }
                            else {
-                             
+                              const guestImg = req.body.base64;
+                              const imgSize = req.body.fileSize;
+                              const type = req.body.type;
+
+
+                              const image = {
+                                 contentType: type,
+                                 size: imgSize,
+                                 img: Buffer.from(guestImg, 'base64')
+                              };
                               console.log(resp);
                               const newUser = {
                                  name: name,
@@ -206,33 +213,42 @@ client.connect(err => {
                                  // createdAt: new Date().getTime(),
                                  // expiresAt: new Date().getTime() + 300000,
                                  verified: false,
-                                 otp: hashOTP
+                                 otp: hashOTP,
+                                 admin: admin,
+                                 ...image
 
                               }
                               userCollection.find({ email: email, verified: false })
                                  .toArray(async (err, result) => {
+                                    console.log(result.length);
                                     if (result.length > 0) {
-                                       roomCollection.deleteMany({ email: email })
+                                       userCollection.deleteMany({ email: email })
                                           .then(result => {
-                                             if (result.deletedCount > 0) {
-                                                userCollection.insertOne(newUser)
-                                                   .then(result => {
-                                                      console.log(result)
-                                                   })
-                                             }
+                                             console.log("delete", result.deletedCount)
+                                             userCollection.insertOne(newUser)
+                                                .then(result => {
+                                                   console.log("asche", result)
+                                                   res.send(result.acknowledged);
+                                                })
+                                             // if (result.deletedCount > 0) {
+                                             //    userCollection.insertOne(newUser)
+                                             //       .then(result => {
+                                             //          console.log("asche",result)
+                                             //          res.send(result.insertedCount > 0);
+                                             //       })
+                                             // }else{
+
+                                             // }
                                           })
                                     }
                                     else {
                                        userCollection.insertOne(newUser)
                                           .then(result => {
-                                             console.log(result)
+                                             console.log("ascheeee",result)
+                                             res.send(result.acknowledged);
                                           })
                                     }
                                  })
-
-
-
-                                 res.send("Your otp has been sent successfully, Please check your email!")
                            }
                         });
 
@@ -393,46 +409,52 @@ client.connect(err => {
          })
    })
 
-   app.post('/addRoom', (req, res) => {
-      const boarderImg = req.body.base64;
-      const imgSize = req.body.fileSize;
-      const type = req.body.type;
-      const roomNo = req.body.roomNo;
-      const seat = req.body.seat;
-      const description = req.body.description;
-      const vacantStatus = req.body.vacantStatus;
+   app.post('/addService', (req, res) => {
+      // const serviceImg = req.body.base64;
+      // const imgSize = req.body.fileSize;
+      // const type = req.body.type;
+      // const title = req.body.title;
+      // const category = req.body.category;
+      // const cause = req.body.cause;
+      // const symptoms = req.body.symptoms;
+      // const price = req.body.price;
+      const {base64,fileSize,type,title,category,cause,symptoms,price} = req.body
+
       const image = {
          contentType: type,
-         size: imgSize,
-         img: Buffer.from(boarderImg, 'base64')
+         size: fileSize,
+         img: Buffer.from(base64, 'base64')
       };
-      const roomInfo = { roomNo: roomNo, seat: seat, description: description, vacantStatus: vacantStatus, ...image }
-
-      roomCollection.insertOne(roomInfo)
+      const serviceInfo = { title: title, category: category, cause: cause, symptoms: symptoms,price: price, ...image }
+       console.log(serviceInfo);
+      serviceCollection.insertOne(serviceInfo)
          .then(result => {
-            res.send(result.insertedCount > 0)
+            res.send(result.acknowledged)
          })
    })
-   app.get('/allRooms', (req, res) => {
-      roomCollection.find({})
+   app.get('/allServices', (req, res) => {
+      serviceCollection.find({})
          .toArray((err, documents) => {
             res.send(documents);
          })
    })
-   app.delete('/deleteRoom/:id', (req, res) => {
-      roomCollection.deleteOne({ _id: ObjectId(req.params.id) })
+   app.delete('/deleteService/:id', (req, res) => {
+      serviceCollection.deleteOne({ _id: ObjectId(req.params.id) })
          .then(result => {
             res.send(result.deletedCount > 0);
          })
    })
-   app.patch('/updateRoomInfo/:id', (req, res) => {
+   app.patch('/updateServiceInfo/:id', (req, res) => {
       console.log(req.body)
-      roomCollection.updateOne({ _id: ObjectId(req.params.id) },
+      const {title,category,cause,symptoms,price} = req.body
+      serviceCollection.updateOne({ _id: ObjectId(req.params.id) },
          {
             $set: {
-               roomNo: req.body.roomNo,
-               seat: req.body.seat,
-               description: req.body.description
+               title: title,
+               cause: cause,
+               symptoms: symptoms,
+               price: price,
+               // category: category,
             }
          })
          .then((result) => {
@@ -462,36 +484,22 @@ client.connect(err => {
 
    app.post('/login', (req, res) => {
       const myPassword = req.body.password;
+      console.log(req.body)
 
-      adminCollection.find({ email: req.body.email })
+      userCollection.find({ email: req.body.email })
          .toArray((err, documents) => {
             const info = { ...documents[0] };
             if (documents.length) {
                bcrypt.compare(myPassword, info.password, function (err, response) {
                   if (response) {
-                     res.json({ ...info, isAdmin: true, isUser: false, message: "" });
+                     res.json({info:info,message:"Login successful"});
                   }
                   else {
                      res.json({ message: "Email or password is incorrect" });
                   }
                });
             } else {
-               boarderCollection.find({ email: req.body.email })
-                  .toArray((err, documents) => {
-                     const info = { ...documents[0] };
-                     if (documents.length) {
-                        bcrypt.compare(myPassword, info.password, function (err, response) {
-                           if (response) {
-                              res.json({ ...info, isAdmin: false, isUser: true, message: "" });
-                           }
-                           else {
-                              res.json({ message: "Email or password is incorrect" });
-                           }
-                        });
-                     } else {
-                        res.json({ message: "Email or password is incorrect" });
-                     }
-                  })
+               res.send({ message: "You are not an user. Please register now." });
             }
          })
 
