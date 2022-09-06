@@ -1,14 +1,9 @@
 const express = require('express')
-
 const bodyParser = require('body-parser');
-
 const cors = require('cors');
-
 const fileUpload = require('express-fileupload');
-
 const ObjectId = require('mongodb').ObjectID;
 const MongoClient = require('mongodb').MongoClient;
-
 
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
@@ -18,7 +13,6 @@ require('dotenv').config();
 const app = express();
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ieei5.mongodb.net/${process.env.DB_NAME}?retryWrites=true&w=majority`;
-
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 app.use(express.json({ limit: '50mb' }));
@@ -28,20 +22,23 @@ app.use(express.static('boarders'));
 app.use(fileUpload());
 
 
-
-
-
-
-
-
 app.get('/', (req, res) => {
 
    res.send("server working");
 
-
 })
 
+
+let transporter = nodemailer.createTransport({
+   service: 'gmail',
+   auth: {
+      user: process.env.email,
+      pass: process.env.pass
+   }
+});
+
 client.connect(err => {
+   console.log(err)
 
    const userCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL1);
    const serviceCollection = client.db(process.env.DB_NAME).collection(process.env.DB_COL2);
@@ -49,14 +46,6 @@ client.connect(err => {
 
    console.log("connected")
 
-
-
-   app.get('/isUser', (req, res) => {
-      boarderCollection.find({ email: req.query.email })
-         .toArray((err, documents) => {
-            res.send(documents.length > 0);
-         })
-   })
    app.post('/verifyUser', (req, res) => {
       const { email, otp } = req.body
       console.log(email, otp)
@@ -100,15 +89,12 @@ client.connect(err => {
             }
             else {
                bcrypt.genSalt(saltRounds, (err, salt) => {
+
                   bcrypt.hash(password, salt, (err, hashPassword) => {
+
                      console.log("hashPassword--->", hashPassword)
-                     let transporter = nodemailer.createTransport({
-                        service: 'gmail',
-                        auth: {
-                           user: process.env.email,
-                           pass: process.env.pass
-                        }
-                     });
+
+
 
                      try {
                         const otp = `${Math.floor(1000 + Math.random() * 9000)}`;
@@ -117,7 +103,7 @@ client.connect(err => {
                            from: "ruetakash@gmail.com",
                            to: email,
                            subject: 'Verify your Email',
-                           html: `<p>Enter <b>${otp}</b> in the app to verify your email address and complete registration.</p><p>This code <b>expires in 5 minutes</b>.</p>`,
+                           html: `<p>Enter <b>${otp}</b> in the app to verify your email address and complete registration.</p><p>This code <b>expires in 5 minutes</b>.<b>Service Zone</b></p>`,
                         };
 
                         const hashOTP = bcrypt.hash(otp, saltRounds);
@@ -248,7 +234,6 @@ client.connect(err => {
    app.get('/allServices', (req, res) => {
 
       serviceCollection.find({})
-
          .toArray((err, documents) => {
             res.send(documents);
          })
@@ -314,7 +299,7 @@ client.connect(err => {
 
       console.log(req.body)
 
-      orderCollection.insertOne(req.body)
+      orderCollection.insertOne({ ...req.body, orderDate: new Date().toDateString() })
          .then(result => {
             res.send(result.acknowledged)
          })
@@ -332,7 +317,7 @@ client.connect(err => {
 
    app.patch('/updateStatus', (req, res) => {
       console.log(req.body)
-      const { status, _id } = req.body
+      const { status, _id, email } = req.body
       orderCollection.updateOne({ _id: ObjectId(_id) },
          {
             $set: {
@@ -340,7 +325,52 @@ client.connect(err => {
             }
          })
          .then((result) => {
-            res.send(result.modifiedCount > 0)
+            // res.send(result.modifiedCount > 0)
+            if (result.modifiedCount > 0 && status === 'processing') {
+
+               let mailOptions = {
+                  from: "ruetakash@gmail.com",
+                  to: email,
+                  subject: 'Service Status',
+                  html: `<p>Your ordered service status: <b>${status}</b>. Probable service date: <b>within 3-5 days</b>.<br/><b>Service Zone</b></p>`,
+               };
+
+
+
+               transporter.sendMail(mailOptions, (err, resp) => {
+                  if (err) {
+
+                     console.log(err);
+                     res.send(false);
+                  } else {
+                     res.send(result.modifiedCount > 0)
+                     console.log(resp)
+                  }
+               })
+
+
+            } else if (result.modifiedCount > 0) {
+               let mailOptions = {
+                  from: "ruetakash@gmail.com",
+                  to: email,
+                  subject: 'Service Status',
+                  html: `<p>Your ordered service status: <b>${status}</b> . Thank you for being with us.<br/><b>Service Zone</b></p>`,
+               };
+
+
+
+               transporter.sendMail(mailOptions, (err, resp) => {
+                  if (err) {
+
+                     console.log(err);
+                     res.send(false);
+                  } else {
+                     res.send(result.modifiedCount > 0)
+                     console.log(resp)
+                  }
+               })
+
+            }
          });
    })
 
